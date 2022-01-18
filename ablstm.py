@@ -8,12 +8,13 @@ Created on Wed Jul 10 22:02:40 2019
 import argparse
 from utils_miscellany import load_config_xml
 from model import ModelLSTM
+import wandb
 
 if __name__ == '__main__':
     # main parser
     parser = argparse.ArgumentParser(description='Quantifying the nativeness of antibody sequences using long short-term memory network.')
     subparsers = parser.add_subparsers(dest='cmd')
-    
+
     # fit cmd parser
     parser_fit = subparsers.add_parser('fit')
     parser_fit.add_argument('TRN_FN', help='training data file')
@@ -22,7 +23,7 @@ if __name__ == '__main__':
     parser_fit.add_argument('-l', default='', help='model file to load (default: \"\")')
     parser_fit.add_argument('-c', default='./ablstm.config', help='configuration XML file (default: \"./ablstm.config\")')
     parser_fit.add_argument('-d', default='cpu', help='device (default: \"cpu\")')
-    
+
     # eval cmd parser
     parser_eval = subparsers.add_parser('eval')
     parser_eval.add_argument('TST_FN', help='evaluation data file')
@@ -30,11 +31,11 @@ if __name__ == '__main__':
     parser_eval.add_argument('SCR_FN', help='file to save scores')
     parser_eval.add_argument('-c', default='./ablstm.config', help='configuration XML file (default: \"./ablstm.config\")')
     parser_eval.add_argument('-d', default='cpu', help='device (default: \"cpu\")')
-    
+
     # args is stored in Namespace obj and configuration in dict
     args = parser.parse_args()
     conf = load_config_xml(args.c)
-    
+
     if args.cmd == 'fit':
         # initialize model
         if not args.l:
@@ -48,7 +49,7 @@ if __name__ == '__main__':
             param_ini = {'device': args.d}
             model = ModelLSTM(**param_ini)
             model.load(args.l)
-        
+
         # fit model
         param_fit = {'trn_fn': args.TRN_FN,
                      'vld_fn': args.VLD_FN,
@@ -57,8 +58,14 @@ if __name__ == '__main__':
                      'vld_batch_size': conf['fit']['vld_batch_size'],
                      'lr': conf['fit']['lr'],
                      'save_fp': args.SAVE_FP}
-        model.fit(**param_fit)
-        
+        config = {**param_ini, **param_fit}
+        with wandb.init(project='natural',
+                        config=config,
+                        anonymous='never',
+                        name=f"human_gapped_{param_ini['gapped']}_15_epoch",
+                        group='human_gapped', sync_tensorboard=True) as run:
+            model.fit(**param_fit)
+
     elif args.cmd == 'eval':
         param_ini = {'device': args.d}
         model = ModelLSTM(**param_ini)
