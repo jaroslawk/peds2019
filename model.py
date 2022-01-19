@@ -66,7 +66,7 @@ class ModelLSTM:
                     # update progress bar
                     pbar.set_postfix({'loss': '{:.6f}'.format(loss_avg), 'acc': '{:.6f}'.format(acc_avg)})
                     pbar.update(len(batch))
-                wandb.log(data={'train_lost_avg': loss_avg, 'train_acc_avg': acc_avg, 'lr': op.param_groups['lr']}, step=epoch)
+                wandb.log(data={'train_lost_avg': loss_avg, 'train_acc_avg': acc_avg}, step=epoch)
 
             # validation
             self.nn.eval()
