@@ -181,16 +181,18 @@ def evaluate(model, file_path, batch_size=512, gapped=True):
     with torch.set_grad_enabled(False):
         with tqdm(total=len(dataset), ascii=True, unit='seq', bar_format='{l_bar}{r_bar}') as pbar:
             predictions = []
-            acc_mean, seq_count = 0, 0
+            acc_mean, batch_count = 0, 0
             for n, (batch, batch_flatten) in enumerate(dataloader):
                 output = model.nn(batch, aa2id_i[gapped])
                 predicted = torch.argmax(output, 1)
                 predictions.append(predicted.data.cpu().numpy())
 
-                corr = (predicted == torch.Tensor(batch_flatten)).data.cpu().numpy()
+                batch_flatten = torch.Tensor(batch_flatten).to(model.nn.device)
+                corr = (predicted == batch_flatten).data.cpu().numpy()
+
                 curr_mean = sum(corr) / len(batch_flatten)
-                seq_count = seq_count + len(batch_flatten)
-                acc_mean = acc_mean + (curr_mean - acc_mean) / seq_count
+                batch_count = batch_count + 1
+                acc_mean = acc_mean + (curr_mean - acc_mean) / batch_count
 
                 scores[n * batch_size:(n + 1) * batch_size] = to_batch_scores(output, batch)
                 pbar.update(len(batch))
