@@ -8,7 +8,7 @@ Created on Fri Jan 18 15:04:06 2019
 from typing import List
 
 from lstm_bi import LSTM_Bi
-from utils_data import ProteinSeqDataset, aa2id_i, aa2id_o, collate_fn
+from utils_data import ProteinSeqDataset, aa2id_i, aa2id_o, collate_fn, id2aa_i
 from tqdm import tqdm
 import numpy as np
 import torch
@@ -169,6 +169,13 @@ def to_batch_scores(output: torch.Tensor, batch) -> List[float]:
     return batch_scores
 
 
+def decode_output(output: np.array, mapping: dict, batch) -> List[np.array]:
+    seq_len = [len(seq) for seq in batch]
+    seq_len_cumsum = np.cumsum(seq_len)
+    decoded = np.vectorize(lambda v: mapping[v])(output)
+    return np.split(decoded, seq_len_cumsum)[:-1]
+
+
 def evaluate(model, file_path, batch_size=512, gapped=True):
     # dataset and dataset loader
     dataset = ProteinSeqDataset(file_path, gapped)
@@ -185,7 +192,7 @@ def evaluate(model, file_path, batch_size=512, gapped=True):
             for n, (batch, batch_flatten) in enumerate(dataloader):
                 output = model.nn(batch, aa2id_i[gapped])
                 predicted = torch.argmax(output, 1)
-                predictions.append(predicted.data.cpu().numpy())
+                predictions.append(decode_output(predicted.data.cpu().numpy(), id2aa_i[gapped], batch))
 
                 batch_flatten = torch.Tensor(batch_flatten).to(model.nn.device)
                 corr = (predicted == batch_flatten).data.cpu().numpy()
