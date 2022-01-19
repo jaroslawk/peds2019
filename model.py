@@ -5,6 +5,7 @@ Created on Fri Jan 18 15:04:06 2019
 
 @author: Chonghua Xue (Kolachalama's Lab, BU)
 """
+from typing import List
 
 from lstm_bi import LSTM_Bi
 from utils_data import ProteinSeqDataset, aa2id_i, aa2id_o, collate_fn
@@ -83,8 +84,10 @@ class ModelLSTM:
                         # compute statistics
                         L = len(batch_flatten)
                         predicted = torch.argmax(scores, 1)
-                        loss_avg = (loss_avg * cnt + loss.data.cpu().numpy() * L) / (cnt + L)
+
                         corr = (predicted == batch_flatten).data.cpu().numpy()
+
+                        loss_avg = (loss_avg * cnt + loss.data.cpu().numpy() * L) / (cnt + L)
                         acc_avg = (acc_avg * cnt + sum(corr)) / (cnt + L)
                         cnt += L
 
@@ -146,3 +149,42 @@ class ModelLSTM:
         print('Fixed Length:\t{}'.format(self.nn.fixed_len))
         print('Gapped:\t{}'.format(self.gapped))
         print('Device:\t{}'.format(self.nn.device))
+
+
+def to_batch_scores(output: torch.Tensor, batch) -> List[float]:
+    actual_batch_size = len(batch)  # last iteration may contain less sequences
+
+    seq_len = [len(seq) for seq in batch]
+    seq_len_cumsum = np.cumsum(seq_len)
+    out = np.split(output.data.cpu().numpy(), seq_len_cumsum)[:-1]
+
+    batch_scores = []
+    for batch_idx in range(actual_batch_size):
+        pos_scores = []
+        for seq_idx in range(seq_len[batch_idx]):
+            input_pos = batch[batch_idx][seq_idx]
+            output_pos_energy = out[batch_idx][seq_idx, input_pos]
+            pos_scores.append(output_pos_energy)
+        batch_scores.append(-sum(pos_scores) / seq_len[batch_idx])
+    return batch_scores
+
+
+def evaluate(model, file_path, batch_size=512, gapped=True):
+    # dataset and dataset loader
+    data = ProteinSeqDataset(file_path, gapped)
+    if batch_size == -1: batch_size = len(data)
+    dataloader = torch.utils.data.DataLoader(data, batch_size, False, collate_fn=collate_fn)
+
+    model.nn.eval()
+    scores = np.zeros(len(data), dtype=np.float32)
+    sys.stdout.flush()
+    with torch.set_grad_enabled(False):
+        with tqdm(total=len(data), ascii=True, unit='seq', bar_format='{l_bar}{r_bar}') as pbar:
+            predictions = []
+            for n, (batch, batch_flatten) in enumerate(dataloader):
+                output = model.nn(batch, aa2id_i[gapped])
+                predicted = torch.argmax(output, 1).data.cpu().numpy()
+                predictions.append(predicted)
+                scores[n * batch_size:(n + 1) * batch_size] = to_batch_scores(output, batch)
+                pbar.update(len(batch))
+    return scores, predictions
