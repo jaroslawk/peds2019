@@ -171,20 +171,27 @@ def to_batch_scores(output: torch.Tensor, batch) -> List[float]:
 
 def evaluate(model, file_path, batch_size=512, gapped=True):
     # dataset and dataset loader
-    data = ProteinSeqDataset(file_path, gapped)
-    if batch_size == -1: batch_size = len(data)
-    dataloader = torch.utils.data.DataLoader(data, batch_size, False, collate_fn=collate_fn)
+    dataset = ProteinSeqDataset(file_path, gapped)
+    if batch_size == -1: batch_size = len(dataset)
+    dataloader = torch.utils.data.DataLoader(dataset, batch_size, False, collate_fn=collate_fn)
 
     model.nn.eval()
-    scores = np.zeros(len(data), dtype=np.float32)
+    scores = np.zeros(len(dataset), dtype=np.float32)
     sys.stdout.flush()
     with torch.set_grad_enabled(False):
-        with tqdm(total=len(data), ascii=True, unit='seq', bar_format='{l_bar}{r_bar}') as pbar:
+        with tqdm(total=len(dataset), ascii=True, unit='seq', bar_format='{l_bar}{r_bar}') as pbar:
             predictions = []
+            acc_mean, seq_count = 0, 0
             for n, (batch, batch_flatten) in enumerate(dataloader):
                 output = model.nn(batch, aa2id_i[gapped])
                 predicted = torch.argmax(output, 1).data.cpu().numpy()
                 predictions.append(predicted)
+
+                corr = (predicted == torch.Tensor(batch_flatten)).data.cpu().numpy()
+                curr_mean = sum(corr) / len(batch_flatten)
+                seq_count = seq_count + len(batch_flatten)
+                acc_mean = acc_mean + (curr_mean - acc_mean) / seq_count
+
                 scores[n * batch_size:(n + 1) * batch_size] = to_batch_scores(output, batch)
                 pbar.update(len(batch))
-    return scores, predictions
+    return scores, predictions, acc_mean
