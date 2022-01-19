@@ -184,8 +184,8 @@ def evaluate(model, file_path, batch_size=512, gapped=True):
             acc_mean, seq_count = 0, 0
             for n, (batch, batch_flatten) in enumerate(dataloader):
                 output = model.nn(batch, aa2id_i[gapped])
-                predicted = torch.argmax(output, 1).data.cpu().numpy()
-                predictions.append(predicted)
+                predicted = torch.argmax(output, 1)
+                predictions.append(predicted.data.cpu().numpy())
 
                 corr = (predicted == torch.Tensor(batch_flatten)).data.cpu().numpy()
                 curr_mean = sum(corr) / len(batch_flatten)
