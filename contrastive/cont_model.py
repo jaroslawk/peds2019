@@ -3,6 +3,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 from torch.nn.utils.rnn import pad_packed_sequence, pack_padded_sequence, pad_sequence
 
+from contrastive.models import LstmNet
 from utils_data import aa2id_i, aa2id_o
 
 
@@ -107,15 +108,48 @@ class BiLSTM(nn.Module):
         return param_dict
 
 
+class LstmNet(torch.nn.Module):
+
+    def __init__(self, embedding_dim=64, hidden_dim1=48, hidden_dim2=32, hidden_dim3=16):
+        super(LstmNet, self).__init__()
+        in_dim, out_dim = len(aa2id_i[True]), len(aa2id_o[True])
+        self.word_embeddings = nn.Embedding(in_dim, embedding_dim)
+        self.lstm = torch.nn.LSTM(embedding_dim, hidden_dim1, dropout=0.2, batch_first=True, bidirectional=True)
+        self.lstm2 = torch.nn.LSTM(2 * hidden_dim1, hidden_dim2, dropout=0.2, batch_first=True, bidirectional=True)
+        self.lstm3 = torch.nn.LSTM(2 * hidden_dim2, hidden_dim3, dropout=0.2, batch_first=True, bidirectional=True)
+
+    def forward(self, sequence):
+        x = self.word_embeddings(sequence)
+        x, _ = self.lstm(x)
+        x = torch.nn.ReLU()(x)
+
+        x, _ = self.lstm2(x)
+        x = torch.nn.ReLU()(x)
+
+        _, (h, _) = self.lstm3(x)
+        return h[-1, :, :]
+
+
 class ContrastiveSeq(nn.Module):
-    def __init__(self, embedding_dim=64, hidden_dim=64, device='cpu', gapped=True):
-        self.gapped = gapped
-        in_dim, out_dim = len(aa2id_i[gapped]), len(aa2id_o[gapped])
-        self.bi_lstm = BiLSTM(in_dim=in_dim, embedding_dim=embedding_dim,
+
+    def __init__(self, embedding_dim=64, hidden_dim=64):
+        super(ContrastiveSeq, self).__init__()
+        '''
+        in_dim=in_dim, embedding_dim=embedding_dim,
                               hidden_dim=hidden_dim,
                               out_dim=out_dim, device=device,
-                              mapping=aa2id_i[gapped])
-        self.to(device)
+                              mapping=aa2id_i[gapped]                    
+                              
+                              LstmNet
+                              LSTM(input_size=embedding_dim,
+                           hidden_size=hidden_dim,
+                           dropout=0.2,
+                           num_layers=1,
+                           bidirectional=False,
+                           batch_first=True)
+
+        '''
+        self.bi_lstm = LstmNet()
 
     def forward(self, sequence1, sequence2):
         output1 = self.bi_lstm(sequence1)
