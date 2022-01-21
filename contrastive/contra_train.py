@@ -31,7 +31,7 @@ class ContrastiveSeqDataset(Dataset):
     def __getitem__(self, idx):
         row = self.data.iloc[idx]
         X = (to_id(row.seq_one, gapped=self.gapped), to_id(row.seq_two, gapped=self.gapped))
-        return X, 1 if row.the_same else 0
+        return X, 0 if row.the_same else 1
 
 
 def padding_collate(batch):
@@ -67,8 +67,7 @@ class ContrastiveLoss(torch.nn.Module):
 
     def forward(self, dist, label):
         loss_contrastive = torch.mean(1 / 2 * (label) * torch.pow(dist, 2) +
-                                      1 / 2 * (1 - label) * torch.pow(F.relu(self.margin - dist), 2)
-                                      )
+                                      1 / 2 * (1 - label) * torch.pow(F.relu(self.margin - dist), 2))
 
         return loss_contrastive
 
@@ -81,18 +80,19 @@ if __name__ == "__main__":
     train_ds = ContrastiveSeqDataset(file_path="./data/contrastive_train_vlen.csv", gapped=True)
     test_ds = ContrastiveSeqDataset(file_path="./data/contrastive_test_vlen.csv", gapped=True)
 
-    train_dl = torch.utils.data.DataLoader(dataset=train_ds, batch_size=128, shuffle=True, collate_fn=padding_collate)
+    train_dl = torch.utils.data.DataLoader(dataset=train_ds, batch_size=3, shuffle=True, collate_fn=padding_collate)
     test_dl = torch.utils.data.DataLoader(dataset=test_ds, batch_size=128, shuffle=False, collate_fn=padding_collate)
 
-    model = ContrastiveSeq(embedding_dim=64)
-
+    model = ContrastiveSeq()
+    model.to(device)
     loss_fn = torch.nn.NLLLoss()
     optimizer = torch.optim.Adam(model.parameters(), lr=0.0002)
     scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='max', factor=0.1, patience=0, verbose=True)
+
     # to track minimum validation loss
     min_loss = np.inf
     loss_fn = ContrastiveLoss()
-    # model.cuda()
+
     for epoch in range(n_epoch):
         model.train()
         loss_avg, cnt = 0, 0
@@ -111,38 +111,19 @@ if __name__ == "__main__":
 
                 pbar.set_postfix({'loss': '{:.6f}'.format(loss_avg), 'acc': '0'})
                 pbar.update(len(batch))
-        scheduler.step()
 
-        """
-        # validation
-        model.eval()
-        loss_avg, acc_avg, cnt = 0, 0, 0
-        with torch.set_grad_enabled(False):
-            with tqdm(total=len(test_ds), desc='          (VLD)'.format(epoch), ascii=True, unit='seq', bar_format='{l_bar}{r_bar}') as pbar:
-                for batch, batch_flatten in test_dl:
-                    # targets
-                    batch_flatten = torch.tensor(batch_flatten, device=model.device)
+        with torch.no_grad():
+            with tqdm(total=len(test_dl), desc='Epoch {:03d} (VLD)'.format(epoch), ascii=True, unit='seq', bar_format='{l_bar}{r_bar}') as pbar:
+                total_loss = 0
+                for batch, labels in test_dl:
+                    seq_one, seq_two, labels = batch[0].to(device), batch[1].to(device), labels.to(device)
+                    model.zero_grad()
+                    output = model(seq_one, seq_two)
+                    total_loss += loss.item()
 
-                    # forward routine
-                    scores = model(batch, aa2id_i[self.gapped])
-                    loss = loss_fn(scores, batch_flatten)
-
-                    # compute statistics
-                    L = len(batch_flatten)
-                    predicted = torch.argmax(scores, 1)
-
-                    corr = (predicted == batch_flatten).data.cpu().numpy()
-
-                    loss_avg = (loss_avg * cnt + loss.data.cpu().numpy() * L) / (cnt + L)
-                    acc_avg = (acc_avg * cnt + sum(corr)) / (cnt + L)
-                    cnt += L
-
-                    # update progress bar
-                    pbar.set_postfix({'loss': '{:.6f}'.format(loss_avg), 'acc': '{:.6f}'.format(acc_avg)})
+                    pbar.set_postfix({'total_loss': '{:.6f}'.format(loss_avg), 'acc': '0'})
                     pbar.update(len(batch))
-                wandb.log({'test_lost_avg': loss_avg, 'test_acc_avg': acc_avg})
-
-            """
+        scheduler.step(total_loss)
 
 """        # save model
         if loss_avg < min_loss and save_fp:
